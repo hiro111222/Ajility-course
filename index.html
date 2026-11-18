@@ -1,23 +1,57 @@
 <!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>アジリティ検分ノート</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#eef2ec;color:#18392d;font:15px system-ui,sans-serif}main{max-width:880px;margin:auto;padding:16px}header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}h1{font-size:clamp(19px,5vw,28px);margin:0}button,select,.file{font:inherit;color:inherit;background:white;border:1px solid #bdcbc0;border-radius:9px;padding:9px;min-height:42px;cursor:pointer}button.active{background:#214c38;color:white;border-color:#214c38}button:disabled{opacity:.35}nav,.row{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}nav button{flex:1;white-space:nowrap;font-size:13px}.board{border-radius:14px;overflow:hidden;border:1px solid #a4bca9;background:#dce9d7}canvas{width:100%;display:block;touch-action:none}#hint{min-height:2.5em;font-size:13px;margin:8px 0}[hidden]{display:none!important}.controls{padding:5px 10px;background:#f9fbf8;border-radius:12px}.file input{display:none}.blue{color:#164bbb}.orange{color:#aa4709}small{color:#496657}
+*{box-sizing:border-box}body{margin:0;background:#eef2ec;color:#18392d;font:15px system-ui,sans-serif}main{max-width:880px;margin:auto;padding:16px}header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}h1{font-size:clamp(19px,5vw,28px);margin:0}button,select,.file{font:inherit;color:inherit;background:white;border:1px solid #bdcbc0;border-radius:9px;padding:9px;min-height:42px;cursor:pointer}button.active{background:#214c38;color:white;border-color:#214c38}button:disabled{opacity:.35}nav,.row{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}nav#modes{display:grid;grid-template-columns:repeat(5,minmax(0,1fr))}nav button{min-width:0;white-space:nowrap;font-size:clamp(11px,3.2vw,13px);padding-inline:2px}.board{border-radius:14px;overflow:hidden;border:1px solid #a4bca9;background:#dce9d7}canvas{width:100%;display:block;touch-action:none}#hint{min-height:2.5em;font-size:13px;margin:8px 0}[hidden]{display:none!important}.controls{padding:5px 10px;background:#f9fbf8;border-radius:12px}.file input{display:none}.blue{color:#164bbb}.orange{color:#aa4709}small{color:#496657}
+canvas{
+ height:auto;aspect-ratio:1;
+ background-color:#e5efe0;
+ background-image:linear-gradient(to right,#c5d9c3 1px,transparent 1px),linear-gradient(to bottom,#c5d9c3 1px,transparent 1px);
+ background-size:5% 5%;
+}
 </style><main><header><h1>アジリティ検分ノート</h1><small id="status" role="status"></small></header>
-<nav id="modes"></nav><div class="board"><canvas id="map" width="800" height="600" aria-label="コース図"></canvas></div><p id="hint"></p>
-<section class="controls"><div class="row"><select id="kind" aria-label="障害物"></select><button id="left">↶ 回転</button><button id="right">↷ 回転</button><button id="shape">トンネル形状</button><button id="del">削除</button></div>
+<nav id="modes" aria-label="操作モード">
+<button type="button" data-mode="place" class="active" aria-pressed="true">配置</button>
+<button type="button" data-mode="order" aria-pressed="false">番号</button>
+<button type="button" data-mode="dog" aria-pressed="false">犬ライン</button>
+<button type="button" data-mode="human" aria-pressed="false">人ライン</button>
+<button type="button" data-mode="walk" aria-pressed="false">検分</button>
+</nav><div class="board"><canvas id="map" width="800" height="800" aria-label="正方形のコース図"></canvas></div><p id="hint">操作するには、SafariやChromeで公開ページを開いてください。</p>
+<section class="controls"><div class="row"><select id="kind" aria-label="障害物">
+<option value="0">ハードル</option>
+<option value="1">ダブルハードル</option>
+<option value="2">ウォール</option>
+<option value="3">タイヤ</option>
+<option value="4">ロングジャンプ</option>
+<option value="5">トンネル</option>
+<option value="6">スラローム</option>
+<option value="7">Aフレーム</option>
+<option value="8">ドッグウォーク</option>
+<option value="9">シーソー</option>
+</select><button id="left">↶ 回転</button><button id="right">↷ 回転</button><button id="shape">トンネル形状</button><button id="del">削除</button></div>
 <div class="row"><button id="undo">元に戻す</button><label class="file">コース図の写真<input id="photo" type="file" accept="image/*"></label><button id="removePhoto">写真を外す</button><button id="clear">新規コース</button></div><div class="row" id="walk"><button id="prev">前へ</button><button id="next">次へ</button></div></section></main>
 <script>
 const el=id=>document.getElementById(id);
 const canvas=el('map'), ctx=canvas.getContext('2d');
-const types=['ハードル','ダブルハードル','ウォール','タイヤ','ロングジャンプ','トンネル','スラローム','Aフレーム','ドッグウォーク','シーソー'];
-const modes={place:'配置',order:'番号',dog:'犬ライン',human:'人ライン',walk:'検分'};
-const blank=()=>({items:[],order:[],lines:[],photo:''});
+const kind=el('kind');
+const types=Array.from(kind.options,option=>option.textContent);
+const modeButtons=el('modes').querySelectorAll('button[data-mode]');
+const boardSize=800, oldHeight=600;
+const blank=()=>({items:[],order:[],lines:[],photo:'',height:boardSize,photoHeight:boardSize});
+function loadCourse(saved){
+ if(!saved)return blank();
+ if(saved.height===boardSize)return saved;
+ const offset=(boardSize-oldHeight)/2;
+ saved.items.forEach(item=>item.y+=offset);
+ saved.lines.forEach(line=>{line.points=line.points.map(([x,y])=>[x,y+offset])});
+ return {...saved,height:boardSize,photoHeight:oldHeight};
+}
 let state=blank(), mode='place', selected=null, history=[], step=0, gesture=null, background=null, photoSource=null;
-try{state=JSON.parse(localStorage.getItem('agility-course-v1'))||blank()}catch{}
+try{state=loadCourse(JSON.parse(localStorage.getItem('agility-course-v1')))}catch{}
 function save(){try{localStorage.setItem('agility-course-v1',JSON.stringify(state));el('status').textContent='この端末に保存済み'}catch{el('status').textContent='保存できませんでした'}}
 function snapshot(){history.push(JSON.stringify(state));if(history.length>40)history.shift()}
 function update(){save();render()}
-types.forEach((name,i)=>el('kind').add(new Option(name,i)));
-Object.entries(modes).forEach(([key,label])=>{const button=document.createElement('button');button.textContent=label;button.dataset.mode=key;button.onclick=()=>{mode=key;step=0;render()};el('modes').append(button)});
+modeButtons.forEach(button=>{
+ button.onclick=()=>{mode=button.dataset.mode;step=0;render()};
+});
 function tunnel(item){
  return [[-42,0],[-23,-item.curve*.75],[0,-item.curve],[23,-item.curve*.75],[42,0]];
 }
@@ -56,21 +90,20 @@ function drawItem(item){
 function world(item,x,y){const c=Math.cos(item.angle),s=Math.sin(item.angle);return [item.x+x*c-y*s,item.y+x*s+y*c]}
 function marker(entry){const item=state.items.find(o=>o.id===entry.id);const peers=state.order.filter(o=>o.id===entry.id&&o.end===entry.end);const offset=peers.indexOf(entry)*31;if(item.type===5){const p=world(item,entry.end*42,0);return [p[0]+offset,p[1]+29]}return [item.x+offset,item.y-27]}
 function render(){
- ctx.fillStyle='#e5efe0';ctx.fillRect(0,0,800,600);
+ ctx.clearRect(0,0,boardSize,boardSize);
  if(photoSource!==state.photo){photoSource=state.photo;background=null;if(photoSource){const img=new Image();img.onload=()=>{if(photoSource===img.src||photoSource===state.photo&&img.getAttribute('src')===photoSource){background=img;render()}};img.src=photoSource}}
- if(background){const scale=Math.min(800/background.width,600/background.height);const w=background.width*scale,h=background.height*scale;ctx.drawImage(background,(800-w)/2,(600-h)/2,w,h)}
- else{for(let x=0;x<=800;x+=40)stroke([[x,0],[x,600]],'#c5d9c3',1);for(let y=0;y<=600;y+=40)stroke([[0,y],[800,y]],'#c5d9c3',1)}
+ if(background){ctx.fillStyle='#e5efe0';ctx.fillRect(0,0,boardSize,boardSize);const scale=Math.min(boardSize/background.width,state.photoHeight/background.height);const w=background.width*scale,h=background.height*scale;ctx.drawImage(background,(boardSize-w)/2,(boardSize-h)/2,w,h)}
  state.items.forEach(drawItem);
  state.lines.forEach(line=>stroke(line.points,line.mode==='dog'?'#2059d3':'#dc5a10',5));
  state.order.forEach((entry,i)=>{const [x,y]=marker(entry),current=mode==='walk'&&step===i;ctx.fillStyle=current?'#a63312':'#173e2f';ctx.beginPath();ctx.arc(x,y,current?21:15,0,7);ctx.fill();ctx.font='bold 19px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='white';ctx.fillText(i+1,x,y)});
  const item=state.items.find(o=>o.id===selected);
  el('hint').textContent={place:'障害を選び、空いている場所をタップ。置いた障害はドラッグで移動できます。',order:'通過順に障害をタップ。トンネルは入る側の端をタップ。次は '+(state.order.length+1)+' 番。',dog:'指で犬が走るラインを描きます。',human:'指でハンドラーが走るラインを描きます。',walk:state.order.length?(step+1)+' / '+state.order.length+' 番　'+types[state.items.find(o=>o.id===state.order[step].id).type]:'「番号」で通過順を登録してください。'}[mode];
  el('hint').className=mode==='dog'?'blue':mode==='human'?'orange':'';
- document.querySelectorAll('[data-mode]').forEach(b=>{b.classList.toggle('active',b.dataset.mode===mode);b.setAttribute('aria-pressed',b.dataset.mode===mode)});
+ modeButtons.forEach(b=>{b.classList.toggle('active',b.dataset.mode===mode);b.setAttribute('aria-pressed',b.dataset.mode===mode)});
  ['left','right','del'].forEach(id=>el(id).disabled=!item||mode!=='place');el('shape').disabled=item?.type!==5||mode!=='place';
  el('undo').disabled=!history.length;el('removePhoto').disabled=!state.photo;el('walk').hidden=mode!=='walk';el('prev').disabled=step<=0;el('next').disabled=step>=state.order.length-1;
 }
-function point(e){const r=canvas.getBoundingClientRect();return [Math.max(0,Math.min(800,(e.clientX-r.left)*800/r.width)),Math.max(0,Math.min(600,(e.clientY-r.top)*600/r.height))]}
+function point(e){const r=canvas.getBoundingClientRect();return [Math.max(0,Math.min(boardSize,(e.clientX-r.left)*boardSize/r.width)),Math.max(0,Math.min(boardSize,(e.clientY-r.top)*boardSize/r.height))]}
 function search([x,y]){
  return [...state.items].reverse().find(o=>{const dx=x-o.x,dy=y-o.y,c=Math.cos(o.angle),s=Math.sin(o.angle);return Math.abs(dx*c+dy*s)<(o.type===8?63:49)&&Math.abs(-dx*s+dy*c)<(o.type===5?Math.abs(o.curve)+18:23)});
 }
@@ -86,13 +119,13 @@ canvas.onpointermove=e=>{
  if(g.line){g.line.points.push(p);render()}
  if(g.mode==='place'&&g.item&&(g.moved||Math.hypot(p[0]-g.p[0],p[1]-g.p[1])>5)){
   if(!g.moved){snapshot();g.moved=true;g.origin=[g.item.x,g.item.y]}
-  g.item.x=Math.max(0,Math.min(800,g.origin[0]+p[0]-g.p[0]));g.item.y=Math.max(0,Math.min(600,g.origin[1]+p[1]-g.p[1]));render()
+  g.item.x=Math.max(0,Math.min(boardSize,g.origin[0]+p[0]-g.p[0]));g.item.y=Math.max(0,Math.min(boardSize,g.origin[1]+p[1]-g.p[1]));render()
  }
 };
 canvas.onpointerup=e=>{
  if(gesture?.id!==e.pointerId)return;
  const {p,item,mode:action,line}=gesture;gesture=null;
- if(action==='place'&&!item){snapshot();selected=crypto.randomUUID();state.items.push({id:selected,type:Number(el('kind').value),x:p[0],y:p[1],angle:0,curve:0})}
+ if(action==='place'&&!item){snapshot();selected=crypto.randomUUID();state.items.push({id:selected,type:Number(kind.value),x:p[0],y:p[1],angle:0,curve:0})}
  if(action==='order'&&item){snapshot();const end=item.type===5?(Math.hypot(...world(item,-42,0).map((v,i)=>v-p[i]))<=Math.hypot(...world(item,42,0).map((v,i)=>v-p[i]))?-1:1):0;state.order.push({id:item.id,end})}
  if(line&&line.points.length===1){state.lines.pop();history.pop()}
  update()
@@ -110,7 +143,7 @@ el('removePhoto').onclick=()=>{snapshot();state.photo='';update()};
 el('photo').onchange=e=>{const file=e.target.files[0];e.target.value='';if(!file)return;
  const url=URL.createObjectURL(file),img=new Image();
  img.onerror=()=>{URL.revokeObjectURL(url);el('status').textContent='写真を読み込めませんでした'};
- img.onload=()=>{URL.revokeObjectURL(url);const scale=Math.min(1,1400/Math.max(img.width,img.height));const buffer=document.createElement('canvas');buffer.width=Math.max(1,Math.round(img.width*scale));buffer.height=Math.max(1,Math.round(img.height*scale));buffer.getContext('2d').drawImage(img,0,0,buffer.width,buffer.height);snapshot();state.photo=buffer.toDataURL('image/jpeg',.8);update()};
+ img.onload=()=>{URL.revokeObjectURL(url);const scale=Math.min(1,1400/Math.max(img.width,img.height));const buffer=document.createElement('canvas');buffer.width=Math.max(1,Math.round(img.width*scale));buffer.height=Math.max(1,Math.round(img.height*scale));buffer.getContext('2d').drawImage(img,0,0,buffer.width,buffer.height);snapshot();state.photoHeight=boardSize;state.photo=buffer.toDataURL('image/jpeg',.8);update()};
  img.src=url;
 };
 render();
